@@ -127,6 +127,45 @@ class TestBranches(IntegrationTestCase):
 		self.assertEqual(frappe.db.count("Warehouse", {"company": TEST_COMPANY}), warehouses)
 		self.assertEqual(frappe.db.count("POS Profile", {"company": TEST_COMPANY}), profiles)
 
+	def test_whitespace_variant_is_duplicate(self):
+		suffix = frappe.generate_hash(length=6)
+		result = create_branch(TEST_COMPANY, f"Maadi Branch {suffix}")
+		self.assertEqual(frappe.db.get_value("Warehouse", result["warehouse"], "warehouse_name"), f"Maadi Branch {suffix}")
+
+		with self.assertRaises(frappe.ValidationError):
+			create_branch(TEST_COMPANY, f"  Maadi  Branch   {suffix} ")
+
+	def test_name_with_company_suffix_refused(self):
+		branch = _unique("Agouza")
+		with self.assertRaises(frappe.ValidationError):
+			create_branch(TEST_COMPANY, f"{branch} - {TEST_ABBR}")
+		self.assertFalse(frappe.db.exists("Warehouse", {"warehouse_name": ("like", f"{branch}%")}))
+
+	def test_unsuitable_standard_price_list_refused_cleanly(self):
+		# Only a disabled "Standard Selling EGP" exists: a clear ValidationError, no partial records.
+		enabled = frappe.get_all(
+			"Price List", filters={"currency": "EGP", "selling": 1, "enabled": 1}, pluck="name"
+		)
+		for name in enabled:
+			frappe.db.set_value("Price List", name, "enabled", 0)
+			self.addCleanup(frappe.db.set_value, "Price List", name, "enabled", 1)
+		if not frappe.db.exists("Price List", "Standard Selling EGP"):
+			frappe.get_doc(
+				{
+					"doctype": "Price List",
+					"price_list_name": "Standard Selling EGP",
+					"currency": "EGP",
+					"selling": 1,
+					"enabled": 0,
+				}
+			).insert()
+		warehouses = frappe.db.count("Warehouse", {"company": TEST_COMPANY})
+
+		with self.assertRaises(frappe.ValidationError):
+			create_branch(TEST_COMPANY, _unique("Garden City"))
+
+		self.assertEqual(frappe.db.count("Warehouse", {"company": TEST_COMPANY}), warehouses)
+
 	def test_arabic_branch_name_saves(self):
 		if frappe.db.exists("Warehouse", {"warehouse_name": ARABIC_BRANCH, "company": TEST_COMPANY}):
 			delete_branch(TEST_COMPANY, ARABIC_BRANCH)  # left behind by an earlier committed run
@@ -138,6 +177,9 @@ class TestBranches(IntegrationTestCase):
 		self.assertIn(ARABIC_BRANCH, result["pos_profile"])
 		self.assertEqual(frappe.db.get_value("POS Profile", result["pos_profile"], "warehouse"), result["warehouse"])
 
+		found = frappe.get_all("Warehouse", filters={"warehouse_name": ["like", "%المعادي%"]}, pluck="name")
+		self.assertIn(result["warehouse"], found)
+
 		delete_branch(TEST_COMPANY, ARABIC_BRANCH)
 		self.assertFalse(frappe.db.exists("Warehouse", result["warehouse"]))
 		self.assertFalse(frappe.db.exists("POS Profile", result["pos_profile"]))
@@ -146,6 +188,43 @@ class TestBranches(IntegrationTestCase):
 		branch = _unique("Nasr City")
 		result = create_branch(TEST_COMPANY, branch)
 		_receive(result["warehouse"], 5)
+
+		with self.assertRaises(frappe.ValidationError):
+			delete_branch(TEST_COMPANY, branch)
+
+		self.assertTrue(frappe.db.exists("Warehouse", result["warehouse"]))
+		self.assertTrue(frappe.db.exists("POS Profile", result["pos_profile"]))
+
+	def test_delete_branch_with_open_request_refused(self):
+		# No stock and no ledger entries, but a submitted Material Request raises indented_qty
+		# (and projected_qty) in the branch Bin, which ERPNext's Warehouse.on_trash also refuses.
+		branch = _unique("Mohandessin")
+		result = create_branch(TEST_COMPANY, branch)
+		request = frappe.get_doc(
+			{
+				"doctype": "Material Request",
+				"material_request_type": "Purchase",
+				"company": TEST_COMPANY,
+				"schedule_date": nowdate(),
+				"items": [
+					{
+						"item_code": TEST_ITEM,
+						"qty": 3,
+						"uom": "Nos",
+						"warehouse": result["warehouse"],
+						"schedule_date": nowdate(),
+					}
+				],
+			}
+		)
+		request.insert()
+		request.submit()
+		self.assertEqual(_bin_qty(result["warehouse"]), 0)
+		self.assertEqual(
+			flt(frappe.db.get_value("Bin", {"warehouse": result["warehouse"], "item_code": TEST_ITEM}, "indented_qty")),
+			3,
+		)
+		self.assertFalse(frappe.db.exists("Stock Ledger Entry", {"warehouse": result["warehouse"]}))
 
 		with self.assertRaises(frappe.ValidationError):
 			delete_branch(TEST_COMPANY, branch)
