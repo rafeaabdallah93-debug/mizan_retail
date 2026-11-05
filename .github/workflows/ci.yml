@@ -45,6 +45,8 @@ jobs:
         ports:
           - 11000:6379
 
+    # NOTE: this CI site has no woocommerce_fusion installed, so the
+    # test_without_woocommerce guard runs fully here (create_branch path + import check).
     steps:
       - name: Clone
         uses: actions/checkout@v4

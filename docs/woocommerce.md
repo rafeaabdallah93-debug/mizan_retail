@@ -30,7 +30,7 @@ What this means for you:
 
 `woocommerce_fusion/woocommerce_endpoint.py`, lines 29-34 (branch `version-16`, commit `ab71a15`): the HMAC signature comparison against the `x-wc-webhook-signature` header is commented out. The HMAC is computed and never compared. The endpoint `order_created` is `allow_guest=True` and then runs as the server's `creation_user`, identified only by the `x-wc-webhook-source` header. Anyone who knows the site's domain can post a fake "order created" event. The sync fetches the order from the real WooCommerce API by id, which limits the damage, but it can still trigger syncs.
 
-Until it is fixed upstream or patched: do not take the website edition live. Mizan has deliberately NOT patched the connector. Interim mitigation options: do not create the webhook (orders then arrive on the hourly sync), or block the `order_created` path at the reverse proxy for everyone except the WooCommerce server's IP.
+The endpoint is guest-accessible whether or not a webhook is configured. Until it is fixed upstream or patched: do not take the website edition live. Mizan has deliberately NOT patched the connector. The real interim mitigation is to block `/api/method/woocommerce_fusion.woocommerce_endpoint.order_created` at the reverse proxy (or allow only the WooCommerce server's IP). Not creating the webhook (orders then arrive on the hourly sync) only reduces exposure; it does not close the endpoint.
 
 ### Requirements
 
@@ -79,8 +79,20 @@ Everything lives on one **WooCommerce Server** record per website (all settings 
 
 In `mizan-dev`, the connector lives only on `shop.localhost`; `dev.localhost` must not have it. It is cloned to `custom-apps/woocommerce_fusion` (`--branch version-16 --depth 1`), which adds it to PYTHONPATH for all services (so it is importable everywhere, but installed only on `shop.localhost`). Do not use `install-custom-app.sh` for it, because that installs onto `dev.localhost`.
 
-The script does not install Python dependencies. In the dev containers, `pip install` fails TLS through the proxy, so the wheels (`WooCommerce-3.0.0`, `jsonpath_ng-1.7.0`, `ply-3.11`) were downloaded on the host, copied into each Frappe container (backend, queue-short, queue-long, scheduler, websocket) and installed with `/home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index <wheels>`. This is lost when containers are recreated and must be repeated.
+The script does not install Python dependencies. In the dev containers, `pip install` fails TLS through the proxy, so the wheels (`WooCommerce-3.0.0`, `jsonpath_ng-1.7.0`, `ply-3.11`) were downloaded on the host, copied into each Frappe container (backend, queue-short, queue-long, scheduler, websocket) and installed with `/home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index <wheels>`. This is lost when containers are recreated and must be repeated. The packaged "shop-web" edition (Task 9) installs these dependencies into its image, so the manual step is only for the dev environment.
+
+Exact commands, run from `/home/user/mizan-dev` (wheels downloaded on the host to `/tmp/claude-0/wheels`; re-download with `pip download woocommerce~=3.0.0 jsonpath-ng~=1.7.0 -d /tmp/claude-0/wheels`):
+
+```
+for s in backend queue-short queue-long scheduler websocket; do
+  cid=$(docker compose ps -q $s)
+  for w in WooCommerce-3.0.0-py3-none-any.whl jsonpath_ng-1.7.0-py3-none-any.whl ply-3.11-py2.py3-none-any.whl; do
+    docker cp /tmp/claude-0/wheels/$w $cid:/tmp/
+  done
+  docker compose exec -T $s bash -c 'cd /tmp && /home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index ./WooCommerce-3.0.0-py3-none-any.whl ./jsonpath_ng-1.7.0-py3-none-any.whl ./ply-3.11-py2.py3-none-any.whl'
+done
+```
 
 Site setup: `bench new-site shop.localhost --admin-password admin --db-root-password admin --install-app erpnext`, `set-config allow_tests true`, then `install-app` for `mizan_core`, `mizan_retail`, `woocommerce_fusion`.
 
-Guard: `mizan_retail/tests/test_without_woocommerce.py` asserts the connector is not installed on the site and `create_branch` still works (it skips itself on a site that has the connector).
+Guard: `mizan_retail/tests/test_without_woocommerce.py` asserts `create_branch` works without the connector, and (on any site) that no mizan_core or mizan_retail source file imports `woocommerce_fusion`. It never skips. CI's site has no connector, so the guard runs fully there. The connector's `requires-python >=3.14` was checked against its pyproject.toml and matches.
