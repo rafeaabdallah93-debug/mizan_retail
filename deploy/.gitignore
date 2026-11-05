@@ -1,0 +1,9 @@
+# Downloaded by fetch-wheels.sh, staged by build.sh: never committed
+/wheels/
+/.build/
+# Your shop's settings and passwords
+.env
+*.env
+!versions.env
+# Backups copied out by backup.sh
+/backups/

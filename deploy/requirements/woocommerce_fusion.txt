@@ -1,0 +1,5 @@
+# Python dependencies of woocommerce_fusion (branch version-16, pyproject.toml:
+# woocommerce~=3.0.0, jsonpath-ng~=1.7.0; jsonpath-ng needs ply). requests is already in the base image.
+woocommerce==3.0.0 --hash=sha256:be054cf47fbe1ce9e88f380c546835b2e725716cfd91fb8188659b2cb282fe77
+jsonpath-ng==1.7.0 --hash=sha256:f3d7f9e848cba1b6da28c55b1c26ff915dc9e0b1ba7e752a53d6da8d5cbd00b6
+ply==3.11 --hash=sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce

@@ -1,0 +1,191 @@
+# Mizan, edition "shop": Frappe + ERPNext + mizan_core + mizan_retail.
+#
+# Start (from the mizan_retail folder):
+#   docker compose -f deploy/editions/shop.yaml --env-file deploy/.env up -d
+# See deploy/README.md for everything else (stop, back up, restore, update).
+#
+# All settings come from the env file (see deploy/.env.example). Images are pinned:
+# the Mizan image by its exact build tag (MIZAN_IMAGE, set by deploy/build.sh),
+# MariaDB and Redis by tag and digest.
+
+name: mizan-shop
+
+x-mizan-image: &mizan-image
+  image: ${MIZAN_IMAGE:?MIZAN_IMAGE is empty. Run deploy/build.sh shop deploy/.env first}
+
+x-mizan-service: &mizan-service
+  <<: *mizan-image
+  restart: unless-stopped
+  networks: [mizan]
+  volumes:
+    - sites:/home/frappe/frappe-bench/sites
+    - logs:/home/frappe/frappe-bench/logs
+
+x-redis-env: &redis-env
+  FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+  FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+
+services:
+  # One-off: writes the shared bench settings into the sites volume on every start.
+  configurator:
+    <<: *mizan-service
+    restart: "no"
+    entrypoint: [bash, -c]
+    command:
+      - |
+        set -e
+        { printf 'frappe\nerpnext\n'; ls -1 apps | grep -vx -e frappe -e erpnext; } > sites/apps.txt
+        bench set-config -g db_host db
+        bench set-config -gp db_port 3306
+        bench set-config -g redis_cache redis://redis-cache:6379
+        bench set-config -g redis_queue redis://redis-queue:6379
+        bench set-config -g redis_socketio redis://redis-queue:6379
+        bench set-config -gp socketio_port 9000
+        echo "apps.txt:"; cat sites/apps.txt
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # One-off: creates and provisions the site the first time; on later starts
+  # (for example after an update) it only runs the database migration.
+  create-site:
+    <<: *mizan-service
+    restart: "no"
+    environment:
+      SITE_NAME: ${SITE_NAME:?set SITE_NAME in the env file}
+      COMPANY: ${COMPANY:?set COMPANY in the env file}
+      ABBR: ${ABBR:?set ABBR in the env file}
+      LANGUAGE: ${LANGUAGE:-ar}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in the env file}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in the env file}
+      MIZAN_APPS: erpnext mizan_core mizan_retail
+    entrypoint: [bash, -c]
+    command:
+      - |
+        set -euo pipefail
+        wait-for-it -t 120 db:3306
+        wait-for-it -t 120 redis-cache:6379
+        wait-for-it -t 120 redis-queue:6379
+        site="$$SITE_NAME"
+        if [ ! -f "sites/$$site/site_config.json" ]; then
+          echo "Creating site $$site with: $$MIZAN_APPS"
+          install_args=()
+          for app in $$MIZAN_APPS; do install_args+=(--install-app "$$app"); done
+          bench new-site "$$site" --mariadb-user-host-login-scope='%' \
+            --db-root-username=root --db-root-password="$$DB_ROOT_PASSWORD" \
+            --admin-password="$$ADMIN_PASSWORD" "$${install_args[@]}" --set-default
+        else
+          echo "Site $$site exists: migrating"
+          bench --site "$$site" migrate
+        fi
+        if [ "$$(bench --site "$$site" execute frappe.is_setup_complete)" != "true" ]; then
+          echo "Provisioning company '$$COMPANY' ($$ABBR), language $$LANGUAGE"
+          bench --site "$$site" mizan-provision --company "$$COMPANY" --abbr "$$ABBR" --language "$$LANGUAGE"
+        fi
+        bench --site "$$site" enable-scheduler
+        bench --site "$$site" set-config -p allow_tests False
+        bench --site "$$site" list-apps
+        echo "Site $$site is ready"
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  backend:
+    <<: *mizan-service
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  websocket:
+    <<: *mizan-service
+    command: [node, /home/frappe/frappe-bench/apps/frappe/socketio.js]
+    environment: *redis-env
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  queue-short:
+    <<: *mizan-service
+    command: [bench, worker, --queue, "short,default"]
+    environment: *redis-env
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  queue-long:
+    <<: *mizan-service
+    command: [bench, worker, --queue, "long,default,short"]
+    environment: *redis-env
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *mizan-service
+    command: [bench, schedule]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  # Web server: serves the pages and static files (baked into the image) and
+  # passes everything else to the backend.
+  frontend:
+    <<: *mizan-service
+    command: [nginx-entrypoint.sh]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: ${SITE_NAME:?set SITE_NAME in the env file}
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "${HTTP_PORT:-8081}:8080"
+    depends_on:
+      - backend
+      - websocket
+
+  db:
+    image: mariadb:11.8@sha256:c4124d1afa875e47f2892edf26b482fa54f796e2f342d3717a04ca091a22a9bd
+    restart: unless-stopped
+    networks: [mizan]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --innodb-snapshot-isolation=OFF
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in the env file}
+    volumes:
+      - db-data:/var/lib/mysql
+
+  redis-cache:
+    image: redis:6.2-alpine@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    restart: unless-stopped
+    networks: [mizan]
+    # Cache only: kept in memory, so no leftover anonymous volume after updates.
+    tmpfs: [/data]
+
+  redis-queue:
+    image: redis:6.2-alpine@sha256:63d5174750e285bc3069c4519c53c8b6de6ebe70715140a6c9d21d6f04b77319
+    restart: unless-stopped
+    networks: [mizan]
+    volumes:
+      - redis-queue-data:/data
+
+volumes:
+  db-data:
+  redis-queue-data:
+  sites:
+  logs:
+
+networks:
+  mizan:
