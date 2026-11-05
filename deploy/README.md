@@ -245,12 +245,12 @@ carries the full SHAs as labels: `docker image inspect <image> --format '{{json 
 A source is a git URL or a local git checkout; relative paths are relative to this repo.
 Override any of them for one build with an environment variable of the same name.
 
-Last verified together (Task 9b, 2026-11-05):
+Last verified together (final review fixes, 2026-11-05; fresh volumes, `deploy/verify.sh`):
 
 | App | Commit |
 | --- | --- |
-| mizan_core | `eedfcf02c25d1f71fc1f883d8ab4fb20c2578dd6` |
-| mizan_retail (app code) | `53efc683ca65e753136147ad78c9258a2f0f39fa` |
+| mizan_core | `550c85f380833b9b92e0b4b4c1a2d8e295a2ad8b` |
+| mizan_retail (app code) | `9ea80afe5f8d28b850882e77978240daaa0bb0ce` |
 | woocommerce_fusion (`version-16`) | `ab71a15d322232fff58d93fa0aa469812bfa9a30` |
 
 `deploy/build.sh shop-web` with no overrides builds exactly these (sources cloned from

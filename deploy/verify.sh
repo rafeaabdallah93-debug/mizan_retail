@@ -21,6 +21,12 @@ PORT="$(env_value HTTP_PORT)"; [ -n "$PORT" ] || { [ "$EDITION" = shop ] && PORT
 DC=(docker compose -f "$DEPLOY/editions/$EDITION.yaml" --env-file "$ENV_FILE")
 [ -n "$PROJECT" ] && DC+=(-p "$PROJECT")
 bench() { "${DC[@]}" exec -T backend bench --site "$SITE" "$@" 2>/dev/null | tail -1; }
+# frappe.db.count; `bench execute` prints nothing for a 0 result.
+count() {
+  local n
+  n="$("${DC[@]}" exec -T backend bench --site "$SITE" execute frappe.db.count --args "$1" 2>/dev/null)" || { echo "error"; return; }
+  n="$(echo "$n" | tail -1)"; echo "${n:-0}"
+}
 
 FAILED=()
 check() { # check <name> <expected> <actual>
@@ -36,15 +42,15 @@ check "login page" 200 "$(curl -s -o /dev/null -w '%{http_code}' "http://localho
 check "Mizan logo asset" 200 "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/assets/mizan_core/images/logo.svg")"
 echo "== apps"; "${DC[@]}" exec -T backend bench --site "$SITE" list-apps 2>/dev/null
 check "setup complete" true "$(bench execute frappe.is_setup_complete)"
-check "exactly one company" 1 "$(bench execute frappe.db.count --args '["Company"]')"
+check "exactly one company" 1 "$(count '["Company"]')"
 check "company from env file" "$COMPANY" "$(bench execute frappe.db.exists --args "[\"Company\", \"$COMPANY\"]")"
 
 # Mizan edition checks
 check "System Settings app_name" Mizan "$(bench execute frappe.db.get_single_value --args '["System Settings", "app_name"]')"
-check "Egypt VAT sales template" 1 "$(bench execute frappe.db.count --args '["Sales Taxes and Charges Template", {"title": "Egypt VAT", "is_default": 1, "disabled": 0}]')"
-check "Egypt VAT purchase template" 1 "$(bench execute frappe.db.count --args '["Purchase Taxes and Charges Template", {"title": "Egypt VAT"}]')"
-check "no GST account" 0 "$(bench execute frappe.db.count --args '["Account", {"account_name": ["like", "%GST%"]}]')"
-check "no ERPNext Tax template" 0 "$(bench execute frappe.db.count --args '["Sales Taxes and Charges Template", {"title": "Egypt Tax"}]')"
+check "Egypt VAT sales template" 1 "$(count '["Sales Taxes and Charges Template", {"title": "Egypt VAT", "is_default": 1, "disabled": 0}]')"
+check "Egypt VAT purchase template" 1 "$(count '["Purchase Taxes and Charges Template", {"title": "Egypt VAT"}]')"
+check "no GST account" 0 "$(count '["Account", {"account_name": ["like", "%GST%"]}]')"
+check "no ERPNext Tax template" 0 "$(count '["Sales Taxes and Charges Template", {"title": "Egypt Tax"}]')"
 
 branch="Verify Branch $(date +%s)"
 args="{\"company\": \"$COMPANY\", \"branch_name\": \"$branch\"}"
@@ -57,7 +63,7 @@ if [ "$created" = ok ]; then
   case "$pos" in *"Egypt VAT"*) pos=ok ;; esac
   check "branch till charges Egypt VAT" ok "$pos"
   bench execute mizan_retail.branches.delete_branch --kwargs "$args" >/dev/null
-  check "test branch deleted" 0 "$(bench execute frappe.db.count --args "[\"Warehouse\", {\"warehouse_name\": \"$branch\"}]")"
+  check "test branch deleted" 0 "$(count "[\"Warehouse\", {\"warehouse_name\": \"$branch\"}]")"
 fi
 
 if [ "${#FAILED[@]}" -eq 0 ]; then echo "ALL CHECKS PASSED"; exit 0; fi
