@@ -19,7 +19,9 @@ SITE="$(getenv SITE_NAME)"
 DC=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
 [ -n "${COMPOSE_PROJECT_NAME:-}" ] && DC+=(-p "$COMPOSE_PROJECT_NAME")
 
-one() { local f; f=$(ls -1 "$SRC"/$1 2>/dev/null | head -1); [ -n "$f" ] && basename "$f"; }
+# First file in the backup folder matching a pattern ($1 is a glob on purpose).
+# shellcheck disable=SC2086
+one() { local f; for f in "$SRC"/$1; do if [ -f "$f" ]; then basename "$f"; return 0; fi; done; return 1; }
 DB_FILE="$(one '*-database.sql.gz')" || { echo "No *-database.sql.gz in $SRC" >&2; exit 1; }
 PUB="$(one '*-files.tar' || true)"
 PRIV="$(one '*-private-files.tar' || true)"
@@ -31,6 +33,8 @@ read -r -p "This replaces ALL data of $SITE with the backup in $SRC. Type YES to
 TMP="/tmp/mizan-restore-$$"
 "${DC[@]}" exec -T backend mkdir -p "$TMP"
 "${DC[@]}" cp "$SRC/." "backend:$TMP/"
+# Backup files are private (mode 600, owned by you); let the bench user read the copies.
+"${DC[@]}" exec -T -u root backend chown -R frappe "$TMP"
 args=(--db-root-username root --db-root-password "$(getenv DB_ROOT_PASSWORD)" --force)
 [ -n "$PUB" ] && args+=(--with-public-files "$TMP/$PUB")
 [ -n "$PRIV" ] && args+=(--with-private-files "$TMP/$PRIV")

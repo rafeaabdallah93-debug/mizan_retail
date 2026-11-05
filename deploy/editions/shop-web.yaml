@@ -49,7 +49,9 @@ services:
         condition: service_healthy
 
   # One-off: creates and provisions the site the first time; on later starts
-  # (for example after an update) it only runs the database migration.
+  # (for example after an update) it runs the database migration, with the site
+  # in maintenance mode and the scheduler paused. Backend, workers and scheduler
+  # start only after it has finished successfully.
   create-site:
     <<: *mizan-service
     restart: "no"
@@ -70,6 +72,22 @@ services:
         wait-for-it -t 120 redis-queue:6379
         site="$$SITE_NAME"
         if [ ! -f "sites/$$site/site_config.json" ]; then
+          refused=0
+          for var in ADMIN_PASSWORD DB_ROOT_PASSWORD; do
+            val="$${!var}"
+            case "$$val" in
+              change-me*) refused=1; echo "REFUSED: $$var is still the example placeholder." ;;
+            esac
+            if [ "$${#val}" -lt 12 ]; then
+              refused=1; echo "REFUSED: $$var is shorter than 12 characters."
+            fi
+          done
+          if [ "$$refused" = 1 ]; then
+            echo "Nothing was created. Put long passwords (12 characters or more) in your env file,"
+            echo "then run 'docker compose ... down -v' (this only removes the empty database"
+            echo "started so far) and 'docker compose ... up -d' again."
+            exit 1
+          fi
           echo "Creating site $$site with: $$MIZAN_APPS"
           install_args=()
           for app in $$MIZAN_APPS; do install_args+=(--install-app "$$app"); done
@@ -77,8 +95,14 @@ services:
             --db-root-username=root --db-root-password="$$DB_ROOT_PASSWORD" \
             --admin-password="$$ADMIN_PASSWORD" "$${install_args[@]}" --set-default
         else
-          echo "Site $$site exists: migrating"
+          echo "Site $$site exists: migrating (maintenance mode on, scheduler paused)"
+          bench --site "$$site" set-maintenance-mode on
+          bench --site "$$site" scheduler pause
+          trap 'bench --site "$$site" scheduler resume; bench --site "$$site" set-maintenance-mode off' EXIT
           bench --site "$$site" migrate
+          bench --site "$$site" scheduler resume
+          bench --site "$$site" set-maintenance-mode off
+          trap - EXIT
         fi
         if [ "$$(bench --site "$$site" execute frappe.is_setup_complete)" != "true" ]; then
           echo "Provisioning company '$$COMPANY' ($$ABBR), language $$LANGUAGE"
@@ -97,6 +121,8 @@ services:
     depends_on:
       configurator:
         condition: service_completed_successfully
+      create-site:
+        condition: service_completed_successfully
 
   websocket:
     <<: *mizan-service
@@ -113,6 +139,8 @@ services:
     depends_on:
       configurator:
         condition: service_completed_successfully
+      create-site:
+        condition: service_completed_successfully
 
   queue-long:
     <<: *mizan-service
@@ -121,12 +149,16 @@ services:
     depends_on:
       configurator:
         condition: service_completed_successfully
+      create-site:
+        condition: service_completed_successfully
 
   scheduler:
     <<: *mizan-service
     command: [bench, schedule]
     depends_on:
       configurator:
+        condition: service_completed_successfully
+      create-site:
         condition: service_completed_successfully
 
   # Web server: serves the pages and static files (baked into the image) and
@@ -143,8 +175,10 @@ services:
       UPSTREAM_REAL_IP_RECURSIVE: "off"
       PROXY_READ_TIMEOUT: 120
       CLIENT_MAX_BODY_SIZE: 50m
+    # Only this computer by default (HTTP_BIND=127.0.0.1). See deploy/README.md,
+    # "Other computers in the shop", before changing HTTP_BIND.
     ports:
-      - "${HTTP_PORT:-8082}:8080"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8082}:8080"
     depends_on:
       - backend
       - websocket

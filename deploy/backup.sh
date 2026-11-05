@@ -25,6 +25,7 @@ DEST="$DEPLOY/backups/$STAMP"
 mkdir -p "$DEST"; chmod 700 "$DEST"
 "${DC[@]}" cp "backend:$TMP/." "$DEST/"
 "${DC[@]}" exec -T backend rm -rf "$TMP"
+chmod 600 "$DEST"/*
 echo
 echo "Backup saved in: $DEST"
 ls -l "$DEST"
