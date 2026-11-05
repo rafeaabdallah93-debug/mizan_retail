@@ -1,0 +1,4 @@
+GNU GENERAL PUBLIC LICENSE, Version 3, 29 June 2007
+
+Mizan Retail is licensed under the GNU General Public License v3.0 (GPL-3.0),
+the same license as ERPNext. The full text is at https://www.gnu.org/licenses/gpl-3.0.txt
