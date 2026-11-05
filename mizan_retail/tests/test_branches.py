@@ -36,7 +36,11 @@ def _receive(warehouse: str, qty: float, rate: float = 50) -> None:
 
 def _ensure_site_fixtures() -> None:
 	"""A bare CI site has never run the setup wizard: no Cash mode, UOMs, stock entry types,
-	groups or fiscal year. Install ERPNext's standard fixtures and a fiscal year when missing."""
+	groups, fiscal year or System Settings language (mandatory when System Settings is saved).
+	Fill in what is missing, as the setup wizard would."""
+	if not frappe.db.get_single_value("System Settings", "language"):
+		frappe.db.set_single_value("System Settings", "language", "en")
+
 	if not frappe.db.exists("Stock Entry Type", "Material Receipt"):
 		from erpnext.setup.setup_wizard.operations.install_fixtures import install
 
