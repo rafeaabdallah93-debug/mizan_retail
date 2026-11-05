@@ -55,7 +55,7 @@ Open `deploy/.env` in a text editor and fill in:
 
 - `COMPANY`: your company name, as it should appear on invoices.
 - `ABBR`: a short abbreviation of it, letters only (for example `MS`).
-- `LANGUAGE`: `ar` for Arabic screens, `en` for English.
+- `LANGUAGE`: `ar` for Arabic screens (the default), `en` for English.
 - `ADMIN_PASSWORD` and `DB_ROOT_PASSWORD`: two different passwords of **at least 12
   characters**. Mizan refuses to start with shorter ones. Write them down somewhere safe.
 - `SITE_NAME`: keep `mizan.localhost` if you use Mizan on this computer only. On a server with a
@@ -90,6 +90,9 @@ Go to http://localhost:8081 (or http://localhost:8082 for `shop-web`). If you se
 
 - Username: `Administrator`
 - Password: the `ADMIN_PASSWORD` you chose.
+
+**Adding a branch:** click the shop icon **Mizan Retail** at the bottom of the left icon bar,
+then **Add Branch** (or type "Add Branch" in the search bar).
 
 **First thing to do:** open **Users** (search "User" in the search bar), and add one user for
 each person who works in the shop, with their own password and role. Use Administrator only
@@ -201,9 +204,26 @@ again, and restore your backup.
 
 should print `{"message":"pong"}`.
 
+For a full check (also after an update):
+
+    deploy/verify.sh shop deploy/.env
+
+It ends with `ALL CHECKS PASSED`, or lists what failed. It adds one test branch and deletes it.
+
 ---
 
 # Technical section
+
+## Verifying an edition
+
+`deploy/verify.sh <edition> <env file> [compose project]` checks a running edition: services,
+`/api/method/ping`, `/login` and the Mizan logo asset; `list-apps`; setup complete; exactly one
+company, the one in the env file; and the Mizan edition checks: System Settings `app_name` is
+`Mizan`; the "Egypt VAT" sales (default, enabled) and purchase templates exist; no account named
+like `GST` and no ERPNext "Egypt Tax" template exist; `create_branch` succeeds on the site and its
+till carries the Egypt VAT template; the test branch is then deleted. Exit code 0 only when every
+check passes. Fresh-volume verification of a new build: `up -d` with a scratch env file (own
+`SITE_NAME`, `HTTP_PORT` and a `-p` project name), `deploy/verify.sh`, then `down -v`.
 
 ## What is in each edition
 
@@ -246,6 +266,28 @@ build.sh warns when a ref is neither a full SHA nor a tag (record the printed SH
 `versions.env` to rebuild the same image) and when a local checkout has uncommitted changes
 (they are never included).
 
+## Licences and source code
+
+- **mizan_core** and **mizan_retail** (Mizan's own apps): GNU General Public License version 3
+  (GPLv3), full text in each app's `license.txt` (Copyright (C) 2026 Mizan).
+- **ERPNext** (`erpnext` 16.53.0): GPLv3 (its `license.txt`, full text).
+- **Frappe Framework** (`frappe` 16.55.1): MIT licence (its `LICENSE`).
+- **woocommerce_fusion** (`shop-web` only): GPLv3, as declared in its `hooks.py`
+  (`app_license = "GNU GPLv3"`) and README; its repository ships no licence file, so no
+  licence text is copied from it.
+- The Python wheels baked into `shop-web` (`woocommerce`, `jsonpath-ng`, `ply`, plus `flit_core`
+  for the build) keep their own licences, listed in their package metadata.
+
+Anyone who receives an edition image may get the exact source of every app in it:
+- Frappe: https://github.com/frappe/frappe at tag `v16.55.1`; ERPNext:
+  https://github.com/frappe/erpnext at tag `v16.53.0` (the base image
+  `frappe/erpnext:v16.53.0`, pinned by digest in `deploy/Dockerfile`).
+- mizan_core, mizan_retail and woocommerce_fusion: the repositories and exact commits in
+  `deploy/versions.env` (`*_SRC` and `*_REF`). Each image also records the commits it was built
+  from as labels (`docker image inspect <image> --format '{{json .Config.Labels}}'`).
+Whoever distributes an image to a customer must give them this source (or a written offer for
+it), as GPLv3 section 6 requires; pointing to these public repositories and commits does that.
+
 ## How the image is built
 
 - Host requirements: bash 3.2 or later (macOS's own bash is fine: no bash-4 features, no
@@ -265,7 +307,9 @@ build.sh warns when a ref is neither a full SHA nor a tag (record the printed SH
   app's `public/` into the baked `assets/` folder, and writes `sites/apps.txt`. The base image's
   entrypoint links `sites/assets` to that baked folder on every container start, so nginx
   serves `/assets/<app>/...` with no runtime hacks and it survives `down`/`up` and updates.
-  These apps ship plain JS/CSS (no bundles), so no `bench build` is needed. The connector's
+  These apps ship plain JS/CSS (no bundles), so no `bench build` is needed. Each app's
+  `locale/<lang>.po` (Arabic) is compiled to `assets/locale/<lang>/LC_MESSAGES/<app>.mo` during
+  the build, where Frappe 16 reads translations. The connector's
   Python dependencies are part of the image, so they survive container recreation.
 
 ## What the compose files do

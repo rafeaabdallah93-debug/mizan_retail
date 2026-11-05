@@ -79,15 +79,16 @@ Everything lives on one **WooCommerce Server** record per website (all settings 
 
 In `mizan-dev`, the connector lives only on `shop.localhost`; `dev.localhost` must not have it. It is cloned to `custom-apps/woocommerce_fusion` (`--branch version-16 --depth 1`), which adds it to PYTHONPATH for all services (so it is importable everywhere, but installed only on `shop.localhost`). Do not use `install-custom-app.sh` for it, because that installs onto `dev.localhost`.
 
-The script does not install Python dependencies. In the dev containers, `pip install` fails TLS through the proxy, so the wheels (`WooCommerce-3.0.0`, `jsonpath_ng-1.7.0`, `ply-3.11`) were downloaded on the host, copied into each Frappe container (backend, queue-short, queue-long, scheduler, websocket) and installed with `/home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index <wheels>`. This is lost when containers are recreated and must be repeated. The packaged "shop-web" edition (Task 9) installs these dependencies into its image, so the manual step is only for the dev environment.
+The script does not install Python dependencies. In the dev containers, `pip install` fails TLS through the proxy, so the wheels (`WooCommerce-3.0.0`, `jsonpath_ng-1.7.0`, `ply-3.11`) are downloaded on the host, copied into each Frappe container (backend, queue-short, queue-long, scheduler, websocket) and installed with `/home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index <wheels>`. This is lost when containers are recreated and must be repeated. The packaged "shop-web" edition (Task 9) installs these dependencies into its image, so the manual step is only for the dev environment.
 
-Exact commands, run from `/home/user/mizan-dev` (wheels downloaded on the host to `/tmp/claude-0/wheels`; re-download with `pip download woocommerce~=3.0.0 jsonpath-ng~=1.7.0 -d /tmp/claude-0/wheels`):
+Get the wheels with the packaging script: in the `mizan_retail` folder run `deploy/fetch-wheels.sh`. It downloads the exact, hash-pinned versions from `deploy/requirements/woocommerce_fusion.txt` into `deploy/wheels/` (needs only Docker; see the script's header if your network re-signs HTTPS). Then install them into the dev containers, from the `mizan-dev` folder (set `WHEELS` to your checkout's `deploy/wheels`):
 
 ```
+WHEELS=custom-apps/mizan_retail/deploy/wheels
 for s in backend queue-short queue-long scheduler websocket; do
   cid=$(docker compose ps -q $s)
   for w in WooCommerce-3.0.0-py3-none-any.whl jsonpath_ng-1.7.0-py3-none-any.whl ply-3.11-py2.py3-none-any.whl; do
-    docker cp /tmp/claude-0/wheels/$w $cid:/tmp/
+    docker cp "$WHEELS/$w" $cid:/tmp/
   done
   docker compose exec -T $s bash -c 'cd /tmp && /home/frappe/frappe-bench/env/bin/python -m pip install --no-deps --no-index ./WooCommerce-3.0.0-py3-none-any.whl ./jsonpath_ng-1.7.0-py3-none-any.whl ./ply-3.11-py2.py3-none-any.whl'
 done

@@ -1,6 +1,6 @@
 import frappe
 from frappe.tests import IntegrationTestCase
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import flt, now_datetime, nowdate
 from mizan_core.setup.egypt_defaults import apply_egypt_defaults
 
 from mizan_retail.branches import create_branch, delete_branch
@@ -34,30 +34,50 @@ def _receive(warehouse: str, qty: float, rate: float = 50) -> None:
 	entry.submit()
 
 
-def _ensure_site_fixtures() -> None:
-	"""A bare CI site has never run the setup wizard: no Cash mode, UOMs, stock entry types,
-	groups, fiscal year or System Settings language (mandatory when System Settings is saved).
-	Fill in what is missing, as the setup wizard would."""
-	if not frappe.db.get_single_value("System Settings", "language"):
-		frappe.db.set_single_value("System Settings", "language", "en")
+def _vat_account() -> str:
+	return frappe.db.get_value("Account", {"company": TEST_COMPANY, "account_number": "2200", "is_group": 0})
 
-	if not frappe.db.exists("Stock Entry Type", "Material Receipt"):
-		from erpnext.setup.setup_wizard.operations.install_fixtures import install
 
-		install(country="Egypt")
+def _open_till(pos_profile: str) -> None:
+	"""Open the till for today, as the cashier does before the first sale."""
+	profile = frappe.get_doc("POS Profile", pos_profile)
+	entry = frappe.get_doc(
+		{
+			"doctype": "POS Opening Entry",
+			"period_start_date": now_datetime(),
+			"posting_date": nowdate(),
+			"company": profile.company,
+			"pos_profile": pos_profile,
+			"user": frappe.session.user,
+			"balance_details": [
+				{"mode_of_payment": row.mode_of_payment, "opening_amount": 0} for row in profile.payments
+			],
+		}
+	)
+	entry.insert()
+	entry.submit()
 
-	today = getdate(nowdate())
-	if not frappe.db.exists(
-		"Fiscal Year", {"year_start_date": ("<=", today), "year_end_date": (">=", today), "disabled": 0}
-	):
-		frappe.get_doc(
-			{
-				"doctype": "Fiscal Year",
-				"year": str(today.year),
-				"year_start_date": f"{today.year}-01-01",
-				"year_end_date": f"{today.year}-12-31",
-			}
-		).insert()
+
+def _till_sale(pos_profile: str, qty: float, rate: float):
+	"""A sale as the POS screen submits it: customer, till and items only."""
+	invoice = frappe.get_doc(
+		{
+			"doctype": "Sales Invoice",
+			"company": TEST_COMPANY,
+			"customer": TEST_CUSTOMER,
+			"is_pos": 1,
+			"is_created_using_pos": 1,
+			"pos_profile": pos_profile,
+			"items": [{"item_code": TEST_ITEM, "qty": qty, "rate": rate}],
+		}
+	)
+	invoice.set_missing_values()
+	invoice.calculate_taxes_and_totals()
+	for row in invoice.payments:
+		row.amount = (invoice.rounded_total or invoice.grand_total) if row.default else 0
+	invoice.insert()
+	invoice.submit()
+	return invoice
 
 
 def _leaf(doctype: str) -> str:
@@ -68,7 +88,6 @@ class TestBranches(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		_ensure_site_fixtures()
 		apply_egypt_defaults(TEST_COMPANY, abbr=TEST_ABBR)
 		if not frappe.db.exists("Item", TEST_ITEM):
 			frappe.get_doc(
@@ -232,40 +251,81 @@ class TestBranches(IntegrationTestCase):
 		self.assertTrue(frappe.db.exists("Warehouse", result["warehouse"]))
 		self.assertTrue(frappe.db.exists("POS Profile", result["pos_profile"]))
 
-	def test_sale_reduces_only_that_branch_stock(self):
+	def test_till_sale_charges_vat_and_reduces_only_that_branch_stock(self):
+		# The till path: POS Settings' invoice type is "Sales Invoice", so the POS screen makes a
+		# Sales Invoice with is_created_using_pos=1 under an open POS Opening Entry. Only the
+		# customer, the till and the items are given; warehouse, taxes and payments come from the
+		# POS Profile through ERPNext's set_pos_fields. Shelf prices include VAT: 114 = 100 + 14%.
 		branch_a = create_branch(TEST_COMPANY, _unique("Dokki"))
 		branch_b = create_branch(TEST_COMPANY, _unique("Giza"))
 		_receive(branch_a["warehouse"], 10)
 		_receive(branch_b["warehouse"], 10)
+		_open_till(branch_a["pos_profile"])
 
-		invoice = frappe.get_doc(
-			{
-				"doctype": "Sales Invoice",
-				"company": TEST_COMPANY,
-				"customer": TEST_CUSTOMER,
-				"is_pos": 1,
-				"pos_profile": branch_a["pos_profile"],
-				"update_stock": 1,
-				"items": [{"item_code": TEST_ITEM, "qty": 3, "rate": 100}],
-			}
-		)
-		invoice.set_missing_values()
-		invoice.calculate_taxes_and_totals()
+		invoice = _till_sale(branch_a["pos_profile"], qty=1, rate=114)
+
 		self.assertEqual(invoice.items[0].warehouse, branch_a["warehouse"])
-		invoice.set("payments", [])
-		invoice.append(
-			"payments",
-			{
-				"mode_of_payment": frappe.get_doc("POS Profile", branch_a["pos_profile"]).payments[0].mode_of_payment,
-				"amount": invoice.rounded_total or invoice.grand_total,
-				"default": 1,
-			},
-		)
-		invoice.insert()
-		invoice.submit()
-
-		self.assertEqual(_bin_qty(branch_a["warehouse"]), 7)
+		self.assertEqual(_bin_qty(branch_a["warehouse"]), 9)
 		self.assertEqual(_bin_qty(branch_b["warehouse"]), 10)
+
+		vat_account = _vat_account()
+		self.assertTrue(invoice.taxes, "a till sale must carry the company's VAT")
+		self.assertEqual([row.account_head for row in invoice.taxes], [vat_account])
+		self.assertEqual(flt(invoice.grand_total), 114)
+		self.assertEqual(flt(invoice.net_total), 100)
+		self.assertEqual(flt(invoice.total_taxes_and_charges), 14)
+
+		credits = {}
+		for entry in frappe.get_all(
+			"GL Entry",
+			filters={"voucher_type": "Sales Invoice", "voucher_no": invoice.name, "is_cancelled": 0},
+			fields=["account", "credit"],
+		):
+			credits[entry.account] = credits.get(entry.account, 0) + flt(entry.credit)
+		self.assertEqual(credits.get(invoice.items[0].income_account), 100)
+		self.assertEqual(credits.get(vat_account), 14)
+
+	def test_branch_till_uses_company_default_sales_tax(self):
+		result = create_branch(TEST_COMPANY, _unique("Sheikh Zayed"))
+
+		template = frappe.db.get_value("POS Profile", result["pos_profile"], "taxes_and_charges")
+		self.assertTrue(template)
+		self.assertEqual(
+			frappe.db.get_value(
+				"Sales Taxes and Charges Template", template, ["company", "is_default", "disabled"]
+			),
+			(TEST_COMPANY, 1, 0),
+		)
+
+	def test_company_without_default_sales_tax_refused_cleanly(self):
+		for name in frappe.get_all(
+			"Sales Taxes and Charges Template",
+			filters={"company": TEST_COMPANY, "is_default": 1},
+			pluck="name",
+		):
+			frappe.db.set_value("Sales Taxes and Charges Template", name, "is_default", 0)
+			self.addCleanup(frappe.db.set_value, "Sales Taxes and Charges Template", name, "is_default", 1)
+		warehouses = frappe.db.count("Warehouse", {"company": TEST_COMPANY})
+		profiles = frappe.db.count("POS Profile", {"company": TEST_COMPANY})
+
+		with self.assertRaises(frappe.ValidationError):
+			create_branch(TEST_COMPANY, _unique("Obour"))
+
+		self.assertEqual(frappe.db.count("Warehouse", {"company": TEST_COMPANY}), warehouses)
+		self.assertEqual(frappe.db.count("POS Profile", {"company": TEST_COMPANY}), profiles)
+
+	def test_patch_backfills_till_tax_template(self):
+		from mizan_retail.patches.v1_0.set_pos_profile_sales_taxes import execute
+
+		result = create_branch(TEST_COMPANY, _unique("Haram"))
+		expected = frappe.db.get_value("POS Profile", result["pos_profile"], "taxes_and_charges")
+		frappe.db.set_value("POS Profile", result["pos_profile"], "taxes_and_charges", None)
+
+		execute()
+
+		self.assertEqual(
+			frappe.db.get_value("POS Profile", result["pos_profile"], "taxes_and_charges"), expected
+		)
 
 	def test_transfer_moves_stock_between_branches(self):
 		branch_a = create_branch(TEST_COMPANY, _unique("Maadi"))

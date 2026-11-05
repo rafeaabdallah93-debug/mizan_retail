@@ -39,7 +39,10 @@ COPY --chown=frappe:root apps/ /tmp/mizan/apps/
 #    image's entrypoint links to sites/assets on every container start, so nginx
 #    serves /assets/<app>/... with no runtime steps. (These apps ship plain JS/CSS
 #    files, no bundles, so no `bench build` is needed.)
-# 4. sites/apps.txt lists frappe and erpnext first, then the added apps.
+# 4. Each app's translations (<app>/locale/<lang>.po) are compiled to
+#    assets/locale/<lang>/LC_MESSAGES/<app>.mo, where Frappe 16 reads them; this
+#    is the part of `bench build` these apps need.
+# 5. sites/apps.txt lists frappe and erpnext first, then the added apps.
 RUN set -eu; \
     for req in /tmp/mizan/requirements/*.txt; do \
       env/bin/python -m pip install --no-cache-dir --no-index --no-deps \
@@ -54,6 +57,14 @@ RUN set -eu; \
       if [ -d "apps/$app/$app/public" ]; then \
         ln -sfn "/home/frappe/frappe-bench/apps/$app/$app/public" "assets/$app"; \
       fi; \
+      for po in apps/$app/$app/locale/*.po; do \
+        [ -f "$po" ] || continue; \
+        lang="$(basename "$po" .po)"; \
+        mkdir -p "assets/locale/$lang/LC_MESSAGES"; \
+        env/bin/python -c 'import sys; from babel.messages.pofile import read_po; from babel.messages.mofile import write_mo; write_mo(open(sys.argv[2], "wb"), read_po(open(sys.argv[1], "rb")))' \
+          "$po" "assets/locale/$lang/LC_MESSAGES/$app.mo"; \
+        echo "compiled $po"; \
+      done; \
       echo "$app" >> sites/apps.txt; \
     done; \
     rm -rf /tmp/mizan; \

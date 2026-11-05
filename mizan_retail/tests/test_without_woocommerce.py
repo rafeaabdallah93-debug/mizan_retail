@@ -6,7 +6,7 @@ from frappe.tests import IntegrationTestCase
 from mizan_core.setup.egypt_defaults import apply_egypt_defaults
 
 from mizan_retail.branches import create_branch
-from mizan_retail.tests.test_branches import TEST_ABBR, TEST_COMPANY, _ensure_site_fixtures, _unique
+from mizan_retail.tests.test_branches import TEST_ABBR, TEST_COMPANY, _unique
 
 
 class TestWithoutWooCommerce(IntegrationTestCase):
@@ -15,7 +15,6 @@ class TestWithoutWooCommerce(IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		_ensure_site_fixtures()
 		apply_egypt_defaults(TEST_COMPANY, abbr=TEST_ABBR)
 
 	def test_apps_work_without_woocommerce(self):

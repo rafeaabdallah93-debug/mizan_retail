@@ -75,6 +75,7 @@ def create_branch(company: str, branch_name: str) -> dict:
 				"write_off_account": settings["write_off_account"],
 				"write_off_cost_center": settings["cost_center"],
 				"cost_center": settings["cost_center"],
+				"taxes_and_charges": settings["taxes_and_charges"],
 				"update_stock": 1,
 				"payments": [{"mode_of_payment": settings["cash_mode"], "default": 1}],
 			}
@@ -177,7 +178,31 @@ def _pos_settings(company: str) -> dict:
 		"cost_center": values.cost_center,
 		"parent_warehouse": _root_warehouse(company),
 		"cash_mode": _cash_mode_of_payment(company),
+		"taxes_and_charges": _required_sales_tax_template(company),
 	}
+
+
+def default_sales_tax_template(company: str) -> str | None:
+	"""The company's default, enabled Sales Taxes and Charges Template (mizan_core's "Egypt VAT")."""
+	return frappe.db.get_value(
+		"Sales Taxes and Charges Template",
+		{"company": company, "is_default": 1, "disabled": 0},
+		order_by="creation asc",
+	)
+
+
+def _required_sales_tax_template(company: str) -> str:
+	"""A till must charge VAT: ERPNext's POS copies the profile's taxes_and_charges onto every
+	sale (set_pos_fields), and adds no tax at all when it is empty."""
+	template = default_sales_tax_template(company)
+	if not template:
+		frappe.throw(
+			_(
+				"Company {0} has no default sales tax template, so the till could not charge VAT. Mark the company's Sales Taxes and Charges Template (for example Egypt VAT) as default, then add the branch again."
+			).format(company),
+			title=_("Missing Tax Template"),
+		)
+	return template
 
 
 def _root_warehouse(company: str) -> str:

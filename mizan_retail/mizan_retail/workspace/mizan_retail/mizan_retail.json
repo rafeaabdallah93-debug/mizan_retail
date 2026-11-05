@@ -1,0 +1,61 @@
+{
+ "app": "mizan_retail",
+ "charts": [],
+ "content": "[{\"id\": \"mzrshort01\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Add Branch\", \"col\": 4}}, {\"id\": \"mzrshort02\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Warehouse\", \"col\": 4}}, {\"id\": \"mzrshort03\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"POS Profile\", \"col\": 4}}]",
+ "creation": "2026-11-05 00:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "store",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "Mizan Retail",
+ "links": [],
+ "modified": "2026-11-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Mizan Retail",
+ "name": "Mizan Retail",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "restrict_to_domain": "",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Stock Manager"
+  }
+ ],
+ "sequence_id": 30.0,
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Add Branch",
+   "link_to": "add-branch",
+   "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Warehouse",
+   "link_to": "Warehouse",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "POS Profile",
+   "link_to": "POS Profile",
+   "type": "DocType"
+  }
+ ],
+ "standard": 1,
+ "title": "Mizan Retail",
+ "type": "Workspace"
+}

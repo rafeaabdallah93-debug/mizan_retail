@@ -1,0 +1,114 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: mizan_retail\n"
+"Language: ar\n"
+"Language-Team: Arabic\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=(n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5);\n"
+
+#, python-brace-format
+msgid "A POS Profile named {0} already exists."
+msgstr "يوجد بالفعل ملف نقطة بيع باسم {0}."
+
+msgid "Add Branch"
+msgstr "إضافة فرع"
+
+msgid "Branch Has Stock"
+msgstr "الفرع فيه مخزون"
+
+msgid "Branch Name"
+msgstr "اسم الفرع"
+
+msgid "Branch created"
+msgstr "تم إنشاء الفرع"
+
+msgid "Branch name is required."
+msgstr "اسم الفرع مطلوب."
+
+#, python-brace-format
+msgid "Branch {0} already exists for company {1}."
+msgstr "الفرع {0} موجود بالفعل للشركة {1}."
+
+#, python-brace-format
+msgid "Branch {0} does not exist for company {1}."
+msgstr "الفرع {0} غير موجود للشركة {1}."
+
+#, python-brace-format
+msgid "Cannot delete branch {0}: its warehouse has stock transactions."
+msgstr "لا يمكن حذف الفرع {0}: توجد حركات مخزون على مستودعه."
+
+#, python-brace-format
+msgid "Cannot delete branch {0}: its warehouse still has stock, orders, requests or reservations for item {1}."
+msgstr "لا يمكن حذف الفرع {0}: ما زال في مستودعه مخزون أو أوامر أو طلبات مواد أو حجوزات للصنف {1}."
+
+msgid "Company"
+msgstr "شركة"
+
+#, python-brace-format
+msgid "Company {0} does not exist."
+msgstr "الشركة {0} غير موجودة."
+
+#, python-brace-format
+msgid "Company {0} has no default sales tax template, so the till could not charge VAT. Mark the company's Sales Taxes and Charges Template (for example Egypt VAT) as default, then add the branch again."
+msgstr "لا يوجد قالب ضريبة مبيعات افتراضي للشركة {0}، ولذلك لن تتمكن نقطة البيع من احتساب ضريبة القيمة المضافة. اجعل قالب الضرائب والرسوم على المبيعات الخاص بالشركة (مثل Egypt VAT) هو الافتراضي، ثم أضف الفرع مرة أخرى."
+
+#, python-brace-format
+msgid "Company {0} has no warehouse group to add the branch under."
+msgstr "لا توجد لدى الشركة {0} مجموعة مستودعات لإضافة الفرع تحتها."
+
+msgid "Create Branch"
+msgstr "إنشاء الفرع"
+
+msgid "Creating branch..."
+msgstr "جارٍ إنشاء الفرع..."
+
+msgid "Default Cost Center"
+msgstr "مركز التكلفة الافتراضي"
+
+msgid "Default Currency"
+msgstr "العملة الافتراضية"
+
+msgid "Duplicate Branch"
+msgstr "فرع مكرر"
+
+#, python-brace-format
+msgid "Enter the branch name without the company abbreviation {0}."
+msgstr "أدخل اسم الفرع بدون اختصار الشركة {0}."
+
+msgid "Home"
+msgstr "الصفحة الرئيسية"
+
+msgid "Missing Account"
+msgstr "حساب ناقص"
+
+msgid "Missing Price List"
+msgstr "قائمة أسعار ناقصة"
+
+msgid "Missing Tax Template"
+msgstr "قالب ضريبة ناقص"
+
+msgid "Mizan Retail"
+msgstr "ميزان للتجزئة"
+
+#, python-brace-format
+msgid "No Cash Mode of Payment has an account for company {0}. Set one in Mode of Payment."
+msgstr "لا توجد طريقة دفع نقدية لها حساب للشركة {0}. حدِّد الحساب في طريقة الدفع."
+
+msgid "POS Profile"
+msgstr "الملف الشخصي لنقطة البيع"
+
+#, python-brace-format
+msgid "Price List {0} exists but is not an enabled selling price list in {1}. Enable it for selling in {1}, or create one, then add the branch again."
+msgstr "قائمة الأسعار {0} موجودة لكنها ليست قائمة أسعار بيع مفعّلة بعملة {1}. فعِّلها للبيع بعملة {1} أو أنشئ قائمة أخرى، ثم أضف الفرع مرة أخرى."
+
+#, python-brace-format
+msgid "Set {0} on company {1} before adding a branch."
+msgstr "حدِّد {0} في الشركة {1} قبل إضافة فرع."
+
+msgid "Warehouse"
+msgstr "المستودعات"
+
+msgid "Write Off Account"
+msgstr "حساب الشطب"
